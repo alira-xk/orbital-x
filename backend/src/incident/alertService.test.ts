@@ -51,7 +51,8 @@ describe('alert persistence against disposable PostgreSQL', () => {
     if (!address || typeof address === 'string') throw new Error('Missing port');
     await new Promise<void>(resolveClose => server.close(() => resolveClose()));
     await execute(join(bin, `initdb${suffix}`), ['-D', join(directory, 'data'), '-U', 'alert_test', '-A', 'trust', '--locale=C', '--encoding=UTF8', '--no-sync'], { windowsHide: true });
-    await control(['-D', join(directory, 'data'), '-l', join(directory, 'postgres.log'), '-o', `-h 127.0.0.1 -p ${address.port} -c timezone=UTC`, '-w', 'start']);
+    const socketOption = process.platform === 'win32' ? '' : ` -c unix_socket_directories=${directory}`;
+    await control(['-D', join(directory, 'data'), '-l', join(directory, 'postgres.log'), '-o', `-h 127.0.0.1 -p ${address.port} -c timezone=UTC${socketOption}`, '-w', 'start']);
     started = true;
     pool = new Pool({ host: '127.0.0.1', port: address.port, user: 'alert_test', database: 'postgres' });
     database = { getClient: () => pool.connect() };

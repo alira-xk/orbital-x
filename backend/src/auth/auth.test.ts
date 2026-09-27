@@ -382,8 +382,9 @@ describe('authentication repository against PostgreSQL', () => {
     await promisify(execFile)(join(bin, `initdb${suffix}`), [
       '-D', join(directory, 'data'), '-U', 'auth_test', '-A', 'trust', '--locale=C', '--encoding=UTF8', '--no-sync',
     ], { windowsHide: true, timeout: 90000 });
+    const socketOption = process.platform === 'win32' ? '' : ` -c unix_socket_directories=${directory}`;
     await control(['-D', join(directory, 'data'), '-l', join(directory, 'postgres.log'),
-      '-o', `-h 127.0.0.1 -p ${port}`, '-w', 'start']);
+      '-o', `-h 127.0.0.1 -p ${port}${socketOption}`, '-w', 'start']);
     started = true;
     pool = new Pool({ host: '127.0.0.1', port, user: 'auth_test', database: 'postgres' });
     await pool.query(readFileSync(resolve(__dirname, '../../../database/init.sql'), 'utf8'));

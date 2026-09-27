@@ -77,9 +77,10 @@ describe('incident migrations against PostgreSQL', () => {
       '-D', join(directory, 'data'), '-U', 'migration_test', '-A', 'trust', '--locale=C', '--encoding=UTF8',
       '--no-sync', // This disposable cluster does not need durable initialization.
     ], { windowsHide: true, timeout: 90000 });
+    const socketOption = process.platform === 'win32' ? '' : ` -c unix_socket_directories=${directory}`;
     await controlServer(bin, [
       '-D', join(directory, 'data'), '-l', join(directory, 'postgres.log'),
-      '-o', `-h 127.0.0.1 -p ${port} -c timezone=UTC`, '-w', 'start',
+      '-o', `-h 127.0.0.1 -p ${port} -c timezone=UTC${socketOption}`, '-w', 'start',
     ]);
     started = true;
     database = new Client({ host: '127.0.0.1', port, user: 'migration_test', database: 'postgres' });

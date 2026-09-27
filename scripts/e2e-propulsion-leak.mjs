@@ -71,7 +71,8 @@ try {
   const initdb = await postgresBinary('initdb'); pgCtl = await postgresBinary('pg_ctl');
   const createdb = await postgresBinary('createdb'); const psql = await postgresBinary('psql');
   await run(initdb, ['-D', pgData, '--auth=trust', '--username=postgres', '--encoding=UTF8']);
-  await run(pgCtl, ['-D', pgData, '-o', `-p ${pgPort} -h 127.0.0.1`, '-w', 'start']);
+  const socketOption = process.platform === 'win32' ? '' : ` -c unix_socket_directories=${pgData}`;
+  await run(pgCtl, ['-D', pgData, '-o', `-p ${pgPort} -h 127.0.0.1${socketOption}`, '-w', 'start']);
   await run(createdb, ['-h', '127.0.0.1', '-p', String(pgPort), '-U', 'postgres', 'orbital_x']);
   await run(psql, ['-h', '127.0.0.1', '-p', String(pgPort), '-U', 'postgres', '-d', 'orbital_x', '-f', `${root}/database/init.sql`]);
   const databaseUrl = `postgresql://postgres@127.0.0.1:${pgPort}/orbital_x`;
