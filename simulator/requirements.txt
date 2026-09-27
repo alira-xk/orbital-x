@@ -1,0 +1,5 @@
+# ORBITAL-X1 Simulator — Phase 1 dependencies
+# Keep this minimal. Add only what's actually used.
+numpy>=1.26.0
+pytest>=8.0.0
+redis>=5.0.0

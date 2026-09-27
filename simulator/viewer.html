@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ORBITAL-X1 — Live Telemetry</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #111820;
+    --border: #1d2733;
+    --text: #e3edf5;
+    --muted: #6b7d8e;
+    --accent: #4ec9d4;
+    --warn: #e8b84d;
+    --crit: #e85d5d;
+    --ok: #5dd47e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', -apple-system, sans-serif;
+    font-size: 14px;
+  }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.5px; }
+  header h1 .sub { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
+  .status { display: flex; gap: 16px; align-items: center; font-size: 12px; }
+  .status .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--ok); margin-right: 6px;
+    box-shadow: 0 0 8px var(--ok);
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+  }
+  .panel h2 {
+    margin: 0 0 12px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kpi { background: #0a0e13; padding: 10px 12px; border-radius: 4px; border: 1px solid var(--border); }
+  .kpi .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi .value { font-size: 18px; font-weight: 600; margin-top: 2px; font-family: 'Consolas', monospace; }
+  .kpi .value.warn { color: var(--warn); }
+  .kpi .value.crit { color: var(--crit); }
+  .kpi .value.ok { color: var(--ok); }
+  .kpi .unit { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 3px; }
+  canvas { width: 100% !important; height: 180px !important; display: block; }
+  .legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  .footer { text-align: center; padding: 16px; color: var(--muted); font-size: 11px; }
+  code { background: #1a2330; padding: 1px 5px; border-radius: 3px; color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>ORBITAL-X1 <span class="sub">// LIVE TELEMETRY</span></h1>
+  <div class="status">
+    <span><span class="dot" id="liveDot"></span>STREAMING</span>
+    <span id="frameInfo">— frames</span>
+  </div>
+</header>
+
+<main>
+  <div class="panel" style="margin-bottom: 16px;">
+    <h2>Mission Status</h2>
+    <div class="kpis" id="kpis"></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Fuel Pressure (MPa)</h2>
+      <canvas id="fuelPressureChart"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Fuel Level (%)</h2>
+      <canvas id="fuelLevelChart"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Engine Temperature (°C)</h2>
+      <canvas id="engineTempChart"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Battery Level (%)</h2>
+      <canvas id="batteryChart"></canvas>
+    </div>
+    <div class="panel">
+      <h2>CPU Temperature (°C)</h2>
+      <canvas id="cpuTempChart"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Power: Solar vs Consumption (A)</h2>
+      <canvas id="powerChart"></canvas>
+      <div class="legend">
+        <span><span class="dot" style="background:#5dd47e"></span> Solar generation</span>
+        <span><span class="dot" style="background:#e85d5d"></span> Power consumption</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Signal Strength (dBm)</h2>
+      <canvas id="signalChart"></canvas>
+    </div>
+    <div class="panel">
+      <h2>CPU Usage (%)</h2>
+      <canvas id="cpuUsageChart"></canvas>
+    </div>
+  </div>
+
+  <div class="footer">
+    Polling <code>telemetry.jsonl</code> every second · <span id="lastTime">no data</span>
+  </div>
+</main>
+
+<script>
+const METRICS = [
+  { id: 'fuelPressureChart', key: 'fuel_pressure',  color: '#4ec9d4', min: 1.5, max: 3.0,   title: 'MPa' },
+  { id: 'fuelLevelChart',    key: 'fuel_level',      color: '#e8b84d', min: 0,   max: 100,   title: '%' },
+  { id: 'engineTempChart',   key: 'engine_temperature', color: '#e85d5d', min: 60, max: 100, title: '°C' },
+  { id: 'batteryChart',      key: 'battery_level',   color: '#5dd47e', min: 0,   max: 100,   title: '%' },
+  { id: 'cpuTempChart',      key: 'cpu_temperature', color: '#9d7ee8', min: 30, max: 80,    title: '°C' },
+  { id: 'powerChart',        key: ['solar_generation','power_consumption'], colors: ['#5dd47e','#e85d5d'], min: 0, max: 12, title: 'A' },
+  { id: 'signalChart',       key: 'signal_strength',  color: '#4ec9d4', min: -80, max: -40, title: 'dBm', invert: true },
+  { id: 'cpuUsageChart',     key: 'cpu_usage',       color: '#e8b84d', min: 0,   max: 100,   title: '%' },
+];
+
+const MAX_POINTS = 200;
+const frames = [];
+let lastMtime = 0;
+
+function colorFor(value, key) {
+  if (key === 'fuel_pressure') {
+    if (value < 1.7) return 'crit';
+    if (value < 2.0 || value > 2.8) return 'warn';
+    return 'ok';
+  }
+  if (key === 'battery_level') return value < 30 ? 'crit' : value < 50 ? 'warn' : 'ok';
+  if (key === 'engine_temperature') return value > 90 ? 'crit' : value > 80 ? 'warn' : '';
+  if (key === 'cpu_temperature') return value > 80 ? 'crit' : value > 70 ? 'warn' : '';
+  if (key === 'signal_strength') return value < -75 ? 'crit' : value < -65 ? 'warn' : 'ok';
+  return '';
+}
+
+function renderKPIs(f) {
+  const list = [
+    ['Sim Time', `${f.simulation_time.toFixed(1)}s`, ''],
+    ['Spacecraft', f.spacecraft_id, 'ok'],
+    ['Scenario', f.scenario, 'ok'],
+    ['Fuel Pressure', f.fuel_pressure.toFixed(3), colorFor(f.fuel_pressure, 'fuel_pressure')],
+    ['Fuel Level', `${f.fuel_level.toFixed(2)}%`, f.fuel_level < 20 ? 'crit' : f.fuel_level < 50 ? 'warn' : 'ok'],
+    ['Engine Temp', `${f.engine_temperature.toFixed(1)}°C`, colorFor(f.engine_temperature, 'engine_temperature')],
+    ['Battery', `${f.battery_level.toFixed(1)}%`, colorFor(f.battery_level, 'battery_level')],
+    ['CPU Temp', `${f.cpu_temperature.toFixed(1)}°C`, colorFor(f.cpu_temperature, 'cpu_temperature')],
+    ['CPU Usage', `${f.cpu_usage.toFixed(1)}%`, f.cpu_usage > 80 ? 'crit' : f.cpu_usage > 60 ? 'warn' : 'ok'],
+    ['Signal', `${f.signal_strength.toFixed(1)} dBm`, colorFor(f.signal_strength, 'signal_strength')],
+    ['Position', `(${f.position_x.toFixed(1)}, ${f.position_y.toFixed(1)}, ${f.position_z.toFixed(1)}) km`, ''],
+    ['Velocity', `${f.velocity_y.toFixed(2)} km/s`, ''],
+  ];
+  document.getElementById('kpis').innerHTML = list.map(([label, value, cls]) => `
+    <div class="kpi">
+      <div class="label">${label}</div>
+      <div class="value ${cls}">${value}</div>
+    </div>
+  `).join('');
+}
+
+function drawChart(canvasId, def, data) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  // Handle HiDPI — fall back to the canvas's HTML height attribute
+  // when clientHeight is 0 (panel not yet laid out / grid auto-fit edge case)
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  let cssW = rect.width  > 0 ? rect.width  : (canvas.parentElement ? canvas.parentElement.clientWidth  - 32 : 380);
+  let cssH = rect.height > 0 ? rect.height : 180;
+  if (cssW < 100) cssW = 380;
+  if (cssH < 60)  cssH = 180;
+  if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
+    canvas.width  = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  // Background
+  ctx.fillStyle = '#0a0e13';
+  ctx.fillRect(0, 0, cssW, cssH);
+  // Grid
+  ctx.strokeStyle = '#1a2330';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = (cssH / 4) * i;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cssW, y); ctx.stroke();
+  }
+
+  if (data.length < 2) {
+    ctx.fillStyle = '#6b7d8e';
+    ctx.font = '12px Consolas';
+    ctx.fillText('waiting for data...', 10, 20);
+    return;
+  }
+
+  const padL = 40, padR = 8, padT = 8, padB = 18;
+  const w = cssW - padL - padR;
+  const h = cssH - padT - padB;
+
+  // Axis labels (min/max on left)
+  ctx.fillStyle = '#6b7d8e';
+  ctx.font = '10px Consolas';
+  ctx.fillText(def.max.toString(), 2, padT + 6);
+  ctx.fillText(def.min.toString(), 2, padT + h);
+
+  const isMulti = Array.isArray(def.key);
+  const series = isMulti
+    ? def.key.map((k, i) => ({ key: k, color: def.colors[i] }))
+    : [{ key: def.key, color: def.color }];
+
+  const range = (def.max - def.min) || 1;
+  const xStep = w / Math.max(1, data.length - 1);
+
+  // For each series, find y-values and draw a line
+  series.forEach(s => {
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach((frame, idx) => {
+      const v = frame[s.key];
+      if (v === undefined) return;
+      const x = padL + idx * xStep;
+      const norm = (v - def.min) / range;
+      const y = padT + h - (def.invert ? norm : norm) * h;
+      if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    // Dots at the latest point
+    const last = data[data.length - 1];
+    if (last && last[s.key] !== undefined) {
+      const v = last[s.key];
+      const x = padL + (data.length - 1) * xStep;
+      const norm = (v - def.min) / range;
+      const y = padT + h - (def.invert ? norm : norm) * h;
+      ctx.fillStyle = s.color;
+      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+    }
+  });
+
+  // X-axis: sim_time
+  const first = data[0].simulation_time;
+  const last = data[data.length - 1].simulation_time;
+  ctx.fillStyle = '#6b7d8e';
+  ctx.font = '10px Consolas';
+  ctx.fillText(`T+${first.toFixed(0)}s`, padL, cssH - 4);
+  const label = `T+${last.toFixed(0)}s`;
+  ctx.fillText(label, cssW - ctx.measureText(label).width - padR, cssH - 4);
+}
+
+function renderCharts() {
+  for (const m of METRICS) drawChart(m.id, m, frames);
+}
+
+async function poll() {
+  try {
+    const resp = await fetch('telemetry.jsonl?t=' + Date.now());
+    if (!resp.ok) return;
+    const text = await resp.text();
+    const newFrames = text.trim().split('\n').filter(Boolean).map(JSON.parse);
+    if (newFrames.length === 0) return;
+    // Convert numeric fields
+    newFrames.forEach(f => {
+      Object.keys(f).forEach(k => {
+        if (typeof f[k] === 'number') {} else if (k === 'timestamp' || k === 'spacecraft_id' || k === 'scenario') {} else {}
+      });
+    });
+    frames.length = 0;
+    frames.push(...newFrames.slice(-MAX_POINTS));
+    const latest = frames[frames.length - 1];
+    renderKPIs(latest);
+    renderCharts();
+    document.getElementById('frameInfo').textContent = `${frames.length} frames`;
+    document.getElementById('lastTime').textContent = `latest @ sim_time ${latest.simulation_time.toFixed(1)}s`;
+  } catch (e) {
+    document.getElementById('liveDot').style.background = '#e85d5d';
+  }
+}
+
+setInterval(poll, 1000);
+poll();
+window.addEventListener('resize', renderCharts);
+</script>
+</body>
+</html>

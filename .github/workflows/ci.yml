@@ -1,0 +1,47 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      REDIS_URL: redis://localhost:6379
+      REDIS_HOST: localhost
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            ai/requirements.txt
+            simulator/requirements.txt
+      - name: Start native Redis and locate PostgreSQL tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y redis-server
+          sudo systemctl start redis-server
+          echo "PG_BIN=$(pg_config --bindir)" >> "$GITHUB_ENV"
+      - name: Install dependencies
+        run: |
+          npm ci
+          python -m pip install -r ai/requirements.txt -r simulator/requirements.txt pytest pytest-asyncio httpx
+      - name: Static checks and builds
+        run: |
+          npm run lint
+          npm --prefix backend run typecheck
+          npm --prefix backend run typecheck:test
+          npm --prefix frontend run typecheck
+          npm run build
+      - name: Automated tests
+        run: |
+          node scripts/phase10-contract.test.mjs
+          npm --prefix backend test -- --runInBand
+          npm --prefix frontend test -- --run
+          python -m pytest -q simulator/tests
+          (cd ai && python -m pytest -q tests)
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+      - name: Propulsion leak E2E
+        run: node scripts/e2e-propulsion-leak.mjs
